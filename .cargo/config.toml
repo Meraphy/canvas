@@ -18,3 +18,9 @@ rustflags = ["-C", "target-cpu=cortex-a7", "-C", "link-args=-Wl,-z,nodelete"]
 
 [target.aarch64-unknown-linux-musl]
 rustflags = ["-C", "target-cpu=cortex-a57"]
+
+# Match the Skia Westmere baseline. Default rustc x86-64 is SSE2-only, but a
+# native or v3 CPU on the build machine must not leak into this cdylib.
+# AVX2/AVX-512 helpers in src/unpremul.rs stay behind is_x86_feature_detected.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-cpu=westmere"]

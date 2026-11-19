@@ -1,0 +1,60 @@
+#!/bin/bash
+# Westmere baseline for zig cc / zig c++, without clobbering dispatched Skia opts.
+#
+# Default translation units get -march=westmere (SSE4.2, AES, PCLMUL, no AVX).
+# GN puts per-file flags such as -march=x86-64-v3 in the same argv. Zig 0.15
+# rejects those hyphenated Clang names: it splits on '-' and looks up CPU "x86".
+# The names it accepts are x86_64_v3 and x86_64_v4. Rewrite those. Do not inject
+# westmere when a -march is already present, or the dispatched ISA is lost.
+
+set -euo pipefail
+
+REAL_ZIG="${REAL_ZIG:-/opt/cursor-toolchain/zig-x86_64-linux-0.15.1/zig}"
+if [[ ! -x "$REAL_ZIG" ]]; then
+  echo "zig-westmere: REAL_ZIG is not executable: $REAL_ZIG" >&2
+  exit 127
+fi
+
+mode=
+if [[ "${1:-}" == "cc" || "${1:-}" == "c++" ]]; then
+  mode=$1
+  shift
+fi
+
+args=()
+has_march=0
+has_evex512=0
+for arg in "$@"; do
+  case "$arg" in
+    -march=x86-64-v2) arg=-march=x86_64_v2 ;;
+    -march=x86-64-v3) arg=-march=x86_64_v3 ;;
+    -march=x86-64-v4) arg=-march=x86_64_v4 ;;
+    -march=x86-64) arg=-march=x86_64 ;;
+  esac
+  case "$arg" in
+    -march=*) has_march=1 ;;
+  esac
+  if [[ "$arg" == "-mevex512" ]]; then
+    has_evex512=1
+  fi
+  args+=("$arg")
+done
+
+# libjxl/highway and skcms return 512-bit vectors from functions that are
+# selected with target attributes, not only from files compiled with
+# -mavx512f. Clang rejects those returns unless evex512 is on. Upstream put
+# -mevex512 on every C++ file next to -march=sandybridge. Keep -mevex512
+# global, but the default march stays westmere: a vectorized loop then uses
+# xmm (SSE), not ymm/zmm. -mevex512 does not define __AVX512F__ by itself.
+if [[ "$has_evex512" -eq 0 ]]; then
+  args+=("-mevex512")
+fi
+
+if [[ -n "$mode" ]]; then
+  if [[ "$has_march" -eq 0 ]]; then
+    exec "$REAL_ZIG" "$mode" -march=westmere "${args[@]}"
+  fi
+  exec "$REAL_ZIG" "$mode" "${args[@]}"
+fi
+
+exec "$REAL_ZIG" "$@"

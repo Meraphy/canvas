@@ -81,16 +81,20 @@ if (!HIGHWAY_GN_CONTENT.includes(HIGHWAY_SOURCE_TO_PATCH)) {
   )
 }
 const HIGHWAY_GN_EOL = HIGHWAY_GN_CONTENT.includes('\r\n') ? '\r\n' : '\n'
-writeFileSync(
-  HighwayGNPath,
-  HIGHWAY_GN_CONTENT.replace(
-    HIGHWAY_SOURCE_TO_PATCH,
-    `${HIGHWAY_SOURCE_ADDED}${HIGHWAY_GN_EOL}    ${HIGHWAY_SOURCE_TO_PATCH}`,
-  ),
-)
-process.once('beforeExit', () => {
-  writeFileSync(HighwayGNPath, HIGHWAY_GN_CONTENT)
-})
+// A killed build leaves this edit in the tree. Adding the line again
+// compiles per_target.cc twice and fails the link with a duplicate symbol.
+if (!HIGHWAY_GN_CONTENT.includes(HIGHWAY_SOURCE_ADDED)) {
+  writeFileSync(
+    HighwayGNPath,
+    HIGHWAY_GN_CONTENT.replace(
+      HIGHWAY_SOURCE_TO_PATCH,
+      `${HIGHWAY_SOURCE_ADDED}${HIGHWAY_GN_EOL}    ${HIGHWAY_SOURCE_TO_PATCH}`,
+    ),
+  )
+  process.once('beforeExit', () => {
+    writeFileSync(HighwayGNPath, HIGHWAY_GN_CONTENT)
+  })
+}
 
 // Skia m152 (commit 7e658a67a) rewrote is_clang.py's probe to
 // `check_output([cc, '--version'])`, which execs argv[0] verbatim — our musl
@@ -109,19 +113,26 @@ const IS_CLANG_CODE_I_WANT = [
 if (CC.includes(' ') || CXX.includes(' ')) {
   const isClangContent = readFileSync(IsClangPyPath, 'utf8')
   let patched = isClangContent
+  let isClangDirty = false
   IS_CLANG_CODE_TO_PATCH.forEach((codeToPatch, index) => {
     if (!patched.includes(codeToPatch)) {
-      throw new Error(
-        `skia/gn/is_clang.py does not contain ${JSON.stringify(codeToPatch)} any more. ` +
-          `Re-check the multi-word cc/cxx workaround in scripts/build-skia.js.`,
-      )
+      if (!patched.includes(IS_CLANG_CODE_I_WANT[index])) {
+        throw new Error(
+          `skia/gn/is_clang.py does not contain ${JSON.stringify(codeToPatch)} any more. ` +
+            `Re-check the multi-word cc/cxx workaround in scripts/build-skia.js.`,
+        )
+      }
+      return
     }
     patched = patched.replace(codeToPatch, IS_CLANG_CODE_I_WANT[index])
+    isClangDirty = true
   })
-  writeFileSync(IsClangPyPath, patched)
-  process.once('beforeExit', () => {
-    writeFileSync(IsClangPyPath, isClangContent)
-  })
+  if (isClangDirty) {
+    writeFileSync(IsClangPyPath, patched)
+    process.once('beforeExit', () => {
+      writeFileSync(IsClangPyPath, isClangContent)
+    })
+  }
 }
 
 const GN_BUILD_CONTENT = readFileSync(GNConfigPath, 'utf8')
