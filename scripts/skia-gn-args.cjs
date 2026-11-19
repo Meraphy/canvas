@@ -190,8 +190,19 @@ function buildGnArgs({
       cc = '"zig cc"'
       cxx = '"zig c++"'
       extraSkiaBuildFlag += ' target_cpu="x64" target_os="linux"'
+      // Stock 1.0.11 passed `-march=sandybridge -mevex512` on extra_cflags_cc.
+      // GN appends extra_cflags AFTER per-file opts, and the last -march wins.
+      // Sandy Bridge therefore became the default ISA (AVX in ordinary C++),
+      // which SIGILLs on Westmere (SSE4.2, no AVX). QEMU confirmed the cutoff:
+      // Westmere-v1 SIGILL on dlopen, SandyBridge-v1 loads. AVX2/AVX-512 copies
+      // (ml3 = -march=x86-64-v3, ml4, skcms HSW/SKX) are CPUID-gated.
+      //
+      // Do not put -march=westmere in these extra flags: it would override the
+      // later per-file -march=x86-64-v3 / -mavx512f and break those TUs.
+      // scripts/zig-westmere (on PATH as `zig`) injects -march=westmere first,
+      // so a later per-file -march still wins. Rust is capped separately.
       extraCflags = `"--target=x86_64-linux-musl", "-fPIC"`
-      extraCflagsCC += `, "--target=x86_64-linux-musl", "-static", "-fPIC", "-march=sandybridge", "-mevex512"`
+      extraCflagsCC += `, "--target=x86_64-linux-musl", "-static", "-fPIC"`
       extraLdFlags = `"--target=x86_64-linux-musl"`
       extraAsmFlags = '"--target=x86_64-linux-musl"'
       GN_ARGS.push(

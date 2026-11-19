@@ -1,0 +1,16 @@
+#!/bin/sh
+# Force libaom (built by libaom-sys during the canvas cargo build) to stop at
+# SSE4.2. aom's cpu.cmake turns off every flavor after the first disabled one,
+# so ENABLE_AVX=OFF also disables AVX2. SSE4.2 and below stay on.
+# Unknown -D flags passed to other cmake projects (libavif) are cache entries
+# and do not change their build.
+
+set -eu
+# -D flags belong on configure only. `cmake --build` / `--install` reject them
+# and then mis-parse `--config`.
+case "${1:-}" in
+  --build|--install|--version|--help|--find-package|-E|-P|--fresh)
+    exec /usr/bin/cmake "$@"
+    ;;
+esac
+exec /usr/bin/cmake -DENABLE_AVX=OFF -DENABLE_AVX2=OFF "$@"
